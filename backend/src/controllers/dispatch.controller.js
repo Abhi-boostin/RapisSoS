@@ -10,37 +10,29 @@ const MESSAGING_SERVICE_SID = process.env.TWILIO_MESSAGING_SERVICE_SID;
 
 const timers = new Map(); // requestId -> timeout
 
-function toMeters(km) { return Math.round(km * 1000); }
-
-async function findNearest(serviceType, lng, lat) {
-	if (serviceType === 'police') {
-		const officer = await Officer.findOne({ dutyStatus: 'on' })
-			.where('currentLocation').near({ center: { type: 'Point', coordinates: [lng, lat] }, spherical: true })
-			.lean();
-		return officer ? { type: 'officer', phone: officer.phone } : null;
-	}
-	if (serviceType === 'ambulance') {
-		const amb = await Ambulance.findOne({ status: 'available', phoneVerified: true })
-			.where('currentLocation').near({ center: { type: 'Point', coordinates: [lng, lat] }, spherical: true })
-			.lean();
-		return amb ? { type: 'ambulance', phone: amb.phone } : null;
-	}
-	return null;
-}
-
-async function distanceMeters(responderType, responderPhone, lng, lat) {
-	if (responderType === 'officer') {
-		const o = await Officer.findOne({ phone: responderPhone }).lean();
-		if (!o?.currentLocation?.coordinates) return undefined;
-		// Simple Haversine via Mongo not available here; approximate using deltas
-		return undefined;
-	}
-	if (responderType === 'ambulance') {
-		const a = await Ambulance.findOne({ phone: responderPhone }).lean();
-		if (!a?.currentLocation?.coordinates) return undefined;
-		return undefined;
-	}
-	return undefined;
+async function findNearest(serviceType, lng, lat, maxMeters = 20000) {
+	const Model = serviceType === 'police' ? Officer : Ambulance;
+	const match = serviceType === 'police'
+		? { dutyStatus: 'on' }
+		: { status: 'available', phoneVerified: true };
+	const results = await Model.aggregate([
+		{ $geoNear: {
+			near: { type: 'Point', coordinates: [lng, lat] },
+			distanceField: 'distanceMeters',
+			maxDistance: maxMeters,
+			spherical: true,
+			key: 'currentLocation'
+		}},
+		{ $match: match },
+		{ $limit: 1 }
+	]);
+	if (!results.length) return null;
+	const r = results[0];
+	return {
+		type: serviceType === 'police' ? 'officer' : 'ambulance',
+		phone: r.phone,
+		distanceMeters: Math.round(r.distanceMeters || 0)
+	};
 }
 
 async function notifyEmergencyContacts(user, mapsUrl, serviceType) {
@@ -54,7 +46,7 @@ async function notifyEmergencyContacts(user, mapsUrl, serviceType) {
 
 export const createDispatch = async (req, res) => {
 	try {
-		const { phone, serviceType, lat, lng } = req.body || {};
+		const { phone, serviceType, lat, lng, expiresInMs } = req.body || {};
 		if (!phone || !isE164Phone(phone)) return res.status(400).json({ error: 'phone (E.164) required' });
 		if (!['police', 'ambulance'].includes(String(serviceType))) return res.status(400).json({ error: "serviceType must be 'police' or 'ambulance'" });
 		const lngNum = Number(lng), latNum = Number(lat);
@@ -67,6 +59,7 @@ export const createDispatch = async (req, res) => {
 		const nearest = await findNearest(serviceType, lngNum, latNum);
 		if (!nearest) return res.status(404).json({ error: 'no on-duty responder available' });
 
+		const ttl = Number.isFinite(Number(expiresInMs)) ? Number(expiresInMs) : 5000;
 		const reqDoc = await Request.create({
 			userPhone: phone,
 			serviceType,
@@ -74,14 +67,15 @@ export const createDispatch = async (req, res) => {
 			mapsUrl,
 			assignedResponderType: nearest.type,
 			assignedResponderPhone: nearest.phone,
+			assignedDistanceMeters: nearest.distanceMeters,
 			status: 'pending',
-			expireAt: new Date(Date.now() + 5000)
+			expireAt: new Date(Date.now() + ttl)
 		});
 
 		// Notify emergency contacts in parallel (fire-and-forget)
 		notifyEmergencyContacts(user, mapsUrl, serviceType).catch(() => {});
 
-		// Arm 5s timeout to auto-decline and reroute
+		// Arm timeout to auto-decline and reroute
 		const t = setTimeout(async () => {
 			try {
 				const fresh = await Request.findById(reqDoc._id);
@@ -96,12 +90,13 @@ export const createDispatch = async (req, res) => {
 						mapsUrl,
 						assignedResponderType: next.type,
 						assignedResponderPhone: next.phone,
+						assignedDistanceMeters: next.distanceMeters,
 						status: 'pending',
-						expireAt: new Date(Date.now() + 5000)
+						expireAt: new Date(Date.now() + ttl)
 					});
 				}
 			} catch {}
-		}, 5000);
+		}, ttl);
 		timers.set(String(reqDoc._id), t);
 
 		return res.json({ requestId: String(reqDoc._id), assigned: nearest });
@@ -127,7 +122,7 @@ export const acceptDispatch = async (req, res) => {
 		} else if (doc.assignedResponderType === 'ambulance') {
 			await Ambulance.findOneAndUpdate({ phone: responderPhone }, { $set: { status: 'enroute' } });
 		}
-		return res.json({ ok: true });
+		return res.json({ ok: true, distanceMeters: doc.assignedDistanceMeters });
 	} catch (e) {
 		return res.status(500).json({ error: e.message });
 	}

@@ -1,9 +1,6 @@
-import twilio from 'twilio';
 import User from '../models/User.js';
 import { isE164Phone } from '../utils/validate.js';
-
-const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-const VERIFY_SERVICE_SID = process.env.TWILIO_VERIFY_SERVICE_SID;
+import { verifyOtp } from '../utils/otp.js';
 
 export const verifyPhone = async (req, res) => {
 	try {
@@ -12,8 +9,7 @@ export const verifyPhone = async (req, res) => {
 			return res.status(400).json({ error: 'phone (E.164) and code required' });
 		}
 
-		const check = await client.verify.v2.services(VERIFY_SERVICE_SID)
-			.verificationChecks.create({ to: phone, code });
+		const check = await verifyOtp(phone, code);
 
 		if (check.status === 'approved') {
 			await User.findOneAndUpdate({ phone }, { $set: { phoneVerified: true } });
