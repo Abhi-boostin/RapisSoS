@@ -8,6 +8,7 @@ import otpRouter from './routes/otp.js';
 import sosRouter from './routes/sos.js';
 import officersRouter from './routes/officers.js';
 import ambulancesRouter from './routes/ambulances.js';
+import dispatchRouter from './routes/dispatch.js';
 
 dotenv.config();
 
@@ -39,6 +40,7 @@ app.use('/api/otp', otpRouter);
 app.use('/api/sos', sosRouter);
 app.use('/api/officers', officersRouter);
 app.use('/api/ambulances', ambulancesRouter);
+app.use('/api/dispatch', dispatchRouter);
 
 // Global error handler
 // eslint-disable-next-line no-unused-vars
