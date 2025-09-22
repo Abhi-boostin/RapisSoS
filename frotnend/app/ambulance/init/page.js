@@ -5,8 +5,10 @@ import { useRouter } from 'next/navigation';
 import Card from '../../../components/Card';
 import Button from '../../../components/Button';
 
-export default function UserInit() {
+export default function AmbulanceInit() {
   const [phone, setPhone] = useState('');
+  
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const router = useRouter();
@@ -28,16 +30,17 @@ export default function UserInit() {
     }
 
     try {
-      const res = await fetch('http://localhost:4000/api/users/init', {
+      const res = await fetch('http://localhost:4000/api/ambulances/init', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone })
       });
-      
+
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to send OTP');
-      
-      router.push(`/user/verify?phone=${encodeURIComponent(phone)}`);
+
+      localStorage.setItem('ambulancePhone', phone);
+      router.push(`/ambulance/verify?phone=${encodeURIComponent(phone)}`);
     } catch (err) {
       setError(err.message || 'Failed to send OTP. Please try again.');
     } finally {
@@ -50,7 +53,7 @@ export default function UserInit() {
       <div className="max-w-md w-full">
         <div className="text-center mb-10">
           <h1 className="text-4xl font-semibold text-gray-900 tracking-tight mb-3 font-sans">
-            Welcome to RapidSoS
+            Ambulance Registration
           </h1>
           <p className="text-lg text-gray-600 font-light">
             Enter your phone number to get started
@@ -121,13 +124,13 @@ export default function UserInit() {
             </Button>
           </form>
         </Card>
-        
+
         <div className="mt-6 text-center">
           <div className="flex items-center justify-center space-x-2 text-sm text-gray-600">
             <svg className="h-5 w-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
             </svg>
-            <span>Your emergency information will be collected after verification</span>
+            <span>Your ambulance details will be collected after verification</span>
           </div>
         </div>
       </div>

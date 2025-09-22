@@ -13,11 +13,13 @@ export default function VerifyUser() {
   const router = useRouter();
 
   useEffect(() => {
-    const savedPhone = localStorage.getItem('phone');
-    if (!savedPhone) {
+    // Get phone from URL query parameter
+    const params = new URLSearchParams(window.location.search);
+    const phoneParam = params.get('phone');
+    if (!phoneParam) {
       router.replace('/user/init');
     } else {
-      setPhone(savedPhone);
+      setPhone(phoneParam);
     }
   }, [router]);
 
@@ -36,8 +38,13 @@ export default function VerifyUser() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Invalid or expired code');
       
-      localStorage.setItem('token', data.token);
-      router.push('/sos');
+      // Check if user needs to complete profile
+      if (data.requiresProfile) {
+        router.push(`/user/info?phone=${encodeURIComponent(phone)}`);
+      } else {
+        localStorage.setItem('token', data.token);
+        router.push('/user/dashboard');
+      }
     } catch (err) {
       setError(err.message || 'Failed to verify OTP. Please try again.');
     } finally {
@@ -50,40 +57,82 @@ export default function VerifyUser() {
   }
 
   return (
-    <div className="max-w-md mx-auto">
-      <Card>
-        <h1 className="text-2xl font-bold mb-6">Verify Your Phone</h1>
-        
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label htmlFor="code" className="block text-sm font-medium text-gray-700 mb-1">
-              Enter OTP
-            </label>
-            <input
-              type="text"
-              id="code"
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Enter the 6-digit OTP"
-              maxLength={6}
-              required
-            />
-          </div>
-
-          <p className="text-sm text-gray-600">
-            OTP sent to: {phone}
+    <div className="min-h-screen bg-gradient-to-b from-blue-50 to-white flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-md w-full">
+        <div className="text-center mb-10">
+          <h1 className="text-4xl font-semibold text-gray-900 tracking-tight mb-3 font-sans">
+            Verify Your Number
+          </h1>
+          <p className="text-lg text-gray-600 font-light">
+            Please enter the OTP sent to your phone
           </p>
+        </div>
 
-          {error && (
-            <p className="text-red-600 text-sm">{error}</p>
-          )}
+        <Card className="backdrop-blur-sm bg-white/90 shadow-xl border-0">
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label htmlFor="code" className="block text-sm font-medium text-gray-900 tracking-wide">
+                  Enter OTP
+                </label>
+                <span className="text-sm text-gray-500">
+                  Sent to: {phone}
+                </span>
+              </div>
+              <input
+                type="text"
+                id="code"
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                className="block w-full px-4 py-3.5 text-gray-900 placeholder:text-gray-400 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                placeholder="Enter 6-digit OTP"
+                maxLength={6}
+                required
+              />
+            </div>
 
-          <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? 'Verifying...' : 'Verify OTP'}
-          </Button>
-        </form>
-      </Card>
+            {error && (
+              <div className="rounded-md bg-red-50 p-4">
+                <div className="flex">
+                  <div className="flex-shrink-0">
+                    <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                  <div className="ml-3">
+                    <p className="text-sm text-red-800">{error}</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <Button 
+              type="submit" 
+              className="w-full py-3 text-base font-medium rounded-lg shadow-md transition-all duration-200 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700" 
+              disabled={loading}
+            >
+              {loading ? (
+                <div className="flex items-center justify-center">
+                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  Verifying...
+                </div>
+              ) : 'Verify & Continue'}
+            </Button>
+          </form>
+        </Card>
+
+        <div className="mt-6 text-center">
+          <button 
+            onClick={() => router.push('/user/init')}
+            className="text-sm text-gray-600 hover:text-blue-600 transition-colors"
+          >
+            Didn't receive OTP? Try again with a different number
+          </button>
+        </div>
+      </div>
     </div>
   );
 } 

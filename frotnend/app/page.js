@@ -1,11 +1,12 @@
 'use client';
 
 import Card from '@/components/Card';
+import { Inter } from 'next/font/google';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-import { getUserData, isFirstTimeUser } from '@/utils/auth';
+import { getUserData, isFirstTimeUser } from '../utils/auth';
 
 export default function Home() {
   const [isLoading, setIsLoading] = useState(true);
@@ -104,15 +105,6 @@ export default function Home() {
               </div>
             </Card>
           </button>
-        </div>
-
-        <div className="mt-12 text-center">
-          <p className="text-gray-500 text-sm">
-            For emergency assistance without logging in,{' '}
-            <Link href="/sos" className="text-red-600 font-medium hover:underline">
-              click here for SOS
-            </Link>
-          </p>
         </div>
       </div>
     </div>

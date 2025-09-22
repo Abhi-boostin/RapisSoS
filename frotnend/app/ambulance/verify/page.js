@@ -1,19 +1,58 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Card from '../../../components/Card';
 import Button from '../../../components/Button';
 
-export default function UserInit() {
-  const [phone, setPhone] = useState('');
+export default function AmbulanceVerify() {
+  const searchParams = useSearchParams();
+  const phone = searchParams.get('phone');
+  const [otp, setOTP] = useState('');
+  const [remainingTime, setRemainingTime] = useState(30);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const router = useRouter();
 
-  const validatePhone = (phone) => {
-    const phoneRegex = /^\+91[6-9]\d{9}$/;
-    return phoneRegex.test(phone);
+  useEffect(() => {
+    if (!phone) {
+      router.push('/ambulance/init');
+      return;
+    }
+
+    const timer = setInterval(() => {
+      setRemainingTime((time) => (time > 0 ? time - 1 : 0));
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [phone, router]);
+
+  const handleResendOTP = async () => {
+    if (remainingTime > 0) return;
+    
+    setLoading(true);
+    setError('');
+    
+    try {
+      const res = await fetch('http://localhost:4000/api/ambulances/init', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone })
+      });
+      
+      if (!res.ok) throw new Error('Failed to resend OTP');
+      
+      setRemainingTime(30);
+    } catch (err) {
+      setError('Failed to resend OTP. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const validateOTP = (otp) => {
+    const otpRegex = /^\d{6}$/;
+    return otpRegex.test(otp);
   };
 
   const handleSubmit = async (e) => {
@@ -21,25 +60,30 @@ export default function UserInit() {
     setLoading(true);
     setError('');
 
-    if (!validatePhone(phone)) {
-      setError('Please enter a valid Indian mobile number with +91 prefix');
+    if (!validateOTP(otp)) {
+      setError('Please enter a valid 6-digit OTP');
       setLoading(false);
       return;
     }
 
     try {
-      const res = await fetch('http://localhost:4000/api/users/init', {
+      const res = await fetch('http://localhost:4000/api/ambulances/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone })
+        body: JSON.stringify({ phone, otp })
       });
       
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to send OTP');
       
-      router.push(`/user/verify?phone=${encodeURIComponent(phone)}`);
+      if (!res.ok) throw new Error(data.error || 'Invalid OTP');
+
+      if (data.isRegistered) {
+        router.push('/ambulance/dashboard');
+      } else {
+        router.push(`/ambulance/details?phone=${encodeURIComponent(phone)}`);
+      }
     } catch (err) {
-      setError(err.message || 'Failed to send OTP. Please try again.');
+      setError(err.message || 'Failed to verify OTP. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -50,10 +94,10 @@ export default function UserInit() {
       <div className="max-w-md w-full">
         <div className="text-center mb-10">
           <h1 className="text-4xl font-semibold text-gray-900 tracking-tight mb-3 font-sans">
-            Welcome to RapidSoS
+            Verify Phone Number
           </h1>
           <p className="text-lg text-gray-600 font-light">
-            Enter your phone number to get started
+            Enter the 6-digit OTP sent to {phone}
           </p>
         </div>
 
@@ -61,32 +105,41 @@ export default function UserInit() {
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
               <label 
-                htmlFor="phone" 
+                htmlFor="otp" 
                 className="block text-sm font-medium text-gray-900 mb-2 tracking-wide"
               >
-                Phone Number
+                One-Time Password
               </label>
-              <div className="relative rounded-lg shadow-sm">
+              <div>
                 <input
-                  type="tel"
-                  id="phone"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  className="block w-full pl-12 pr-4 py-3.5 text-gray-900 placeholder:text-gray-400 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
-                  placeholder="Enter your mobile number"
-                  pattern="^\+91[6-9]\d{9}$"
+                  type="text"
+                  id="otp"
+                  value={otp}
+                  onChange={(e) => setOTP(e.target.value)}
+                  className="block w-full px-4 py-3.5 text-gray-900 placeholder:text-gray-400 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                  placeholder="Enter 6-digit OTP"
+                  pattern="\d{6}"
+                  maxLength={6}
                   required
                 />
-                <div className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none">
-                  <span className="text-lg">🇮🇳</span>
-                </div>
               </div>
-              <p className="mt-2.5 text-sm text-gray-500 flex items-center">
-                <svg className="w-4 h-4 mr-1.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                Format: +91XXXXXXXXXX
-              </p>
+              <div className="mt-2 flex justify-between items-center">
+                <p className="text-sm text-gray-500">Didn't receive the code?</p>
+                <button
+                  type="button"
+                  onClick={handleResendOTP}
+                  disabled={remainingTime > 0 || loading}
+                  className={`text-sm font-medium ${
+                    remainingTime > 0
+                      ? 'text-gray-400 cursor-not-allowed'
+                      : 'text-blue-600 hover:text-blue-500'
+                  }`}
+                >
+                  {remainingTime > 0
+                    ? `Resend in ${remainingTime}s`
+                    : 'Resend OTP'}
+                </button>
+              </div>
             </div>
 
             {error && (
@@ -115,19 +168,19 @@ export default function UserInit() {
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                   </svg>
-                  Sending OTP...
+                  Verifying...
                 </div>
-              ) : 'Get OTP'}
+              ) : 'Verify OTP'}
             </Button>
           </form>
         </Card>
-        
+
         <div className="mt-6 text-center">
           <div className="flex items-center justify-center space-x-2 text-sm text-gray-600">
             <svg className="h-5 w-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
             </svg>
-            <span>Your emergency information will be collected after verification</span>
+            <span>Your number will be verified for future logins</span>
           </div>
         </div>
       </div>

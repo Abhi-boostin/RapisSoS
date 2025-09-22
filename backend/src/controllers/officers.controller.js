@@ -1,57 +1,105 @@
-import twilio from 'twilio';
 import Officer from '../models/Officer.js';
+import { detectUserType } from '../utils/userTypeDetection.js';
 import { isE164Phone } from '../utils/validate.js';
 import { sendOtp, verifyOtp } from '../utils/otp.js';
 
-const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-const VERIFY_SERVICE_SID = process.env.TWILIO_VERIFY_SERVICE_SID;
+export const init = async (req, res) => {
+  try {
+    const { phone } = req.body || {};
+    if (!phone || !isE164Phone(phone)) {
+      return res.status(400).json({ error: 'Valid phone number (E.164) required' });
+    }
 
-export const upsertOfficer = async (req, res) => {
-	try {
-		const { phone, ...rest } = req.body || {};
-		if (!phone || !isE164Phone(phone)) {
-			return res.status(400).json({ error: 'phone required (E.164)' });
-		}
-		if ('phoneVerified' in rest) delete rest.phoneVerified;
+    // Check if number exists in any other service
+    const userType = await detectUserType(phone);
+    if (userType && userType.type !== 'officer') {
+      return res.status(400).json({ 
+        error: `This number is already registered as a ${userType.type}`
+      });
+    }
 
-		const officer = await Officer.findOneAndUpdate(
-			{ phone },
-			{ $set: { phone, ...rest } },
-			{ upsert: true, new: true }
-		);
-		return res.json({ officer });
-	} catch (e) {
-		return res.status(500).json({ error: e.message });
-	}
+    // Create officer record if it doesn't exist
+    let officer = await Officer.findOne({ phone });
+    if (!officer) {
+      officer = new Officer({ phone });
+      await officer.save();
+    }
+
+    // Generate and send OTP
+    const verification = await sendOtp(phone);
+    
+    return res.json({ success: true, message: 'OTP sent successfully' });
+  } catch (e) {
+    return res.status(400).json({ error: e.message });
+  }
 };
 
-export const sendOfficerOtp = async (req, res) => {
-	try {
-		const { phone } = req.body || {};
-		if (!phone || !isE164Phone(phone)) {
-			return res.status(400).json({ error: 'phone required (E.164)' });
-		}
-		const verification = await sendOtp(phone);
-		return res.json({ status: verification.status });
-	} catch (e) {
-		return res.status(400).json({ error: e.message });
-	}
+export const verify = async (req, res) => {
+  try {
+    const { phone, otp } = req.body || {};
+    if (!phone || !isE164Phone(phone) || !otp) {
+      return res.status(400).json({ error: 'phone (E.164) and otp required' });
+    }
+
+    // Verify OTP
+    const check = await verifyOtp(phone, otp);
+    if (check.status !== 'approved') {
+      return res.status(400).json({ approved: false, status: check.status, error: 'Invalid or expired code' });
+    }
+
+    // Get officer record
+    const officer = await Officer.findOne({ phone });
+    if (!officer) {
+      return res.status(404).json({ error: 'Officer not found' });
+    }
+
+    // Update verification status
+    officer.phoneVerified = true;
+    await officer.save();
+
+    // Check if officer is fully registered
+    const isRegistered = !!officer.badgeNumber;
+
+    return res.json({ approved: true, isRegistered });
+  } catch (e) {
+    return res.status(400).json({ error: e.message });
+  }
 };
 
-export const verifyOfficerOtp = async (req, res) => {
-	try {
-		const { phone, code } = req.body || {};
-		if (!phone || !isE164Phone(phone) || !code) {
-			return res.status(400).json({ error: 'phone (E.164) and code required' });
-		}
-		const check = await verifyOtp(phone, code);
+export const register = async (req, res) => {
+  try {
+    const { phone, fullName, badgeNumber, department, rank, stationLocation, ...rest } = req.body || {};
+    
+    // Basic validation
+    if (!phone || !fullName || !badgeNumber || !department || !rank || !stationLocation) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
 
-		if (check.status === 'approved') {
-			await Officer.findOneAndUpdate({ phone }, { $set: { phoneVerified: true } });
-			return res.json({ approved: true, status: check.status });
-		}
-		return res.status(400).json({ approved: false, status: check.status, error: 'Invalid or expired code' });
-	} catch (e) {
-		return res.status(400).json({ error: e.message });
-	}
+    // Find officer by phone
+    const officer = await Officer.findOne({ phone });
+    if (!officer) {
+      return res.status(404).json({ error: 'Officer not found' });
+    }
+
+    // Check if badge number is unique
+    const existingBadge = await Officer.findOne({ badgeNumber });
+    if (existingBadge && existingBadge.phone !== phone) {
+      return res.status(400).json({ error: 'Badge number already registered' });
+    }
+
+    // Update officer details
+    Object.assign(officer, { 
+      fullName, 
+      badgeNumber, 
+      department, 
+      rank, 
+      stationLocation,
+      ...rest 
+    });
+
+    await officer.save();
+    return res.json({ success: true, officer });
+  } catch (e) {
+    return res.status(400).json({ error: e.message });
+  }
 }; 
