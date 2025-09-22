@@ -25,6 +25,7 @@ const UserSchema = new mongoose.Schema({
 
 	emergencyContacts: [EmergencyContactSchema],
 
+	aadhaarNumber: String,
 	homeAddress: String,
 	photoUrl: String,
 
