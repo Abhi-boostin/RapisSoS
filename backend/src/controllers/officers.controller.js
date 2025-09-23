@@ -1,82 +1,69 @@
 import Officer from '../models/Officer.js';
 import Request from '../models/Request.js';
-import { verifyOtp as verifyOtpUtil } from '../utils/otp.js';
+import User from '../models/User.js';
+import { verifyOtp as verifyOtpUtil, sendOtp as sendOtpUtil } from '../utils/otp.js';
 
-// Verify OTP and create/update officer
-export const verifyOfficer = async (req, res) => {
+export const sendOfficerOtp = async (req, res) => {
     try {
-        const { phone, code } = req.body;
-        
-        // Verify OTP
-        const isValid = await verifyOtpUtil(phone, code);
-        if (!isValid) {
-            return res.status(400).json({ 
-                success: false, 
-                message: 'Invalid OTP' 
-            });
-        }
-
-        // Create or update officer
-        let officer = await Officer.findOneAndUpdate(
-            { phone },
-            { $set: { phone, phoneVerified: true } },
-            { upsert: true, new: true }
-        );
-
-        return res.json({ 
-            success: true, 
-            message: 'OTP verified successfully',
-            officer 
-        });
+        const { phone } = req.body;
+        await sendOtpUtil(phone);
+        return res.json({ success: true, message: 'OTP sent successfully' });
     } catch (err) {
-        console.error('Officer Verify Error:', err);
-        return res.status(500).json({ 
-            success: false, 
-            message: 'Server error' 
-        });
+        return res.status(500).json({ success: false, message: err.message });
     }
 };
 
-// Update officer data
+export const verifyOfficer = async (req, res) => {
+    try {
+        const { phone, code } = req.body;
+        const check = await verifyOtpUtil(phone, code);
+        
+        if (check.status === 'approved') {
+            let officer = await Officer.findOneAndUpdate(
+                { phone },
+                { $set: { phone, phoneVerified: true } },
+                { upsert: true, new: true }
+            );
+            return res.json({ success: true, message: 'OTP verified successfully', officer });
+        } else {
+            return res.status(400).json({ success: false, message: 'Invalid OTP' });
+        }
+    } catch (err) {
+        return res.status(500).json({ success: false, message: err.message });
+    }
+};
+
 export const updateOfficer = async (req, res) => {
     const { phone, badgeNumber, fullName, department, location } = req.body;
-    
     const officer = await Officer.findOneAndUpdate(
         { phone },
         { $set: { badgeNumber, fullName, department, location } },
         { new: true }
     );
-
     return res.json({ success: true, officer });
 };
 
-// Update officer status
 export const updateStatus = async (req, res) => {
     const { phone, status } = req.body;
-    
     const officer = await Officer.findOneAndUpdate(
         { phone },
         { $set: { status, lastStatusUpdate: new Date() } },
         { new: true }
     );
-
     return res.json({ success: true, officer });
 };
 
-// Get available requests for officer
 export const getRequests = async (req, res) => {
     const { phone } = req.query;
-
-    // Find all pending requests assigned to this officer
     const requests = await Request.find({
         assignedResponderType: 'officer',
         assignedResponderPhone: phone,
         status: 'pending',
-        expireAt: { $gt: new Date() } // Only non-expired requests
-    }).sort({ createdAt: -1 }); // Newest first
+        expireAt: { $gt: new Date() }
+    }).sort({ createdAt: -1 });
 
-    // Calculate time remaining for each request
-    const requestsWithTime = requests.map(request => {
+    const requestsWithUserInfo = await Promise.all(requests.map(async request => {
+        const user = await User.findOne({ phone: request.userPhone });
         const timeRemaining = request.expireAt - new Date();
         const secondsRemaining = Math.max(0, Math.floor(timeRemaining / 1000));
         
@@ -87,17 +74,23 @@ export const getRequests = async (req, res) => {
             distanceMeters: request.assignedDistanceMeters,
             createdAt: request.createdAt,
             secondsRemaining,
-            status: request.status
+            status: request.status,
+            user: user ? {
+                name: user.name,
+                phone: user.phone,
+                bloodGroup: user.bloodGroup,
+                allergies: user.allergies,
+                medicalConditions: user.medicalConditions,
+                medications: user.medications,
+                specialNeeds: user.specialNeeds,
+                emergencyContacts: user.emergencyContacts
+            } : null
         };
-    });
+    }));
 
-    return res.json({
-        success: true,
-        requests: requestsWithTime
-    });
+    return res.json({ success: true, requests: requestsWithUserInfo });
 };
 
-// Accept emergency request
 export const acceptRequest = async (req, res) => {
     try {
         const { id } = req.params;
@@ -112,36 +105,39 @@ export const acceptRequest = async (req, res) => {
             return res.status(400).json({ success: false, message: "Not authorized" });
         }
 
-        // Update request
         request.status = "accepted";
         request.acceptedAt = new Date();
         await request.save();
 
-        // Update officer status to off
         await Officer.findOneAndUpdate(
             { phone: officerPhone },
-            { 
-                $set: { 
-                    status: "off",
-                    lastStatusUpdate: new Date()
-                }
-            }
+            { $set: { status: "off", lastStatusUpdate: new Date() } }
         );
+
+        const user = await User.findOne({ phone: request.userPhone });
 
         return res.json({
             success: true,
             message: "Request accepted",
             request,
             userLocation: request.userLocation,
-            mapsUrl: request.mapsUrl
+            mapsUrl: request.mapsUrl,
+            user: user ? {
+                name: user.name,
+                phone: user.phone,
+                bloodGroup: user.bloodGroup,
+                allergies: user.allergies,
+                medicalConditions: user.medicalConditions,
+                medications: user.medications,
+                specialNeeds: user.specialNeeds,
+                emergencyContacts: user.emergencyContacts
+            } : null
         });
     } catch (err) {
-        console.error("Accept Request Error:", err);
         return res.status(500).json({ success: false, message: "Server error" });
     }
 };
 
-// Decline emergency request
 export const declineRequest = async (req, res) => {
     try {
         const { id } = req.params;
@@ -156,12 +152,10 @@ export const declineRequest = async (req, res) => {
             return res.status(400).json({ success: false, message: "Not authorized" });
         }
 
-        // Mark as declined
         request.status = "declined";
         request.declinedAt = new Date();
         await request.save();
 
-        // Find next nearest officer
         const nextOfficer = await Officer.findOne({
             phone: { $ne: officerPhone },
             status: "available",
@@ -171,7 +165,7 @@ export const declineRequest = async (req, res) => {
                         type: "Point",
                         coordinates: request.userLocation.coordinates
                     },
-                    $maxDistance: 10000 // 10km radius
+                    $maxDistance: 10000
                 }
             }
         }).select("phone currentLocation badgeNumber department");
@@ -180,16 +174,14 @@ export const declineRequest = async (req, res) => {
             return res.json({ success: false, message: "No other officers available" });
         }
 
-        // Calculate distance for next officer
         const [long, lat] = request.userLocation.coordinates;
         const [officerLong, officerLat] = nextOfficer.currentLocation.coordinates;
         const distance = calculateDistance(lat, long, officerLat, officerLong);
 
-        // Reassign request
         request.assignedResponderPhone = nextOfficer.phone;
         request.status = "pending";
-        request.expireAt = new Date(Date.now() + 5 * 60000); // Reset 5-minute timer
-        request.assignedDistanceMeters = distance * 1000; // Convert km to meters
+        request.expireAt = new Date(Date.now() + 5 * 60000);
+        request.assignedDistanceMeters = distance * 1000;
         await request.save();
 
         return res.json({
@@ -203,7 +195,18 @@ export const declineRequest = async (req, res) => {
             }
         });
     } catch (err) {
-        console.error("Decline Request Error:", err);
         return res.status(500).json({ success: false, message: "Server error" });
     }
 };
+
+function calculateDistance(lat1, lon1, lat2, lon2) {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = 
+        Math.sin(dLat/2) * Math.sin(dLat/2) +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+        Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+}

@@ -5,12 +5,14 @@ import {
     updateStatus, 
     getRequests, 
     acceptRequest,
-    declineRequest 
+    declineRequest,
+    sendOfficerOtp 
 } from '../controllers/officers.controller.js';
 
 const router = express.Router();
 
 // Authentication & Profile
+router.post('/sendotp', sendOfficerOtp);
 router.post('/verifyotp', verifyOfficer);
 router.post('/update', updateOfficer);
 router.post('/status', updateStatus);

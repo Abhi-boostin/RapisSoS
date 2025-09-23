@@ -5,12 +5,14 @@ import {
     updateStatus, 
     getRequests,
     acceptRequest,
-    declineRequest 
+    declineRequest,
+    sendAmbulanceOtp 
 } from '../controllers/ambulances.controller.js';
 
 const router = express.Router();
 
 // Authentication & Profile
+router.post('/sendotp', sendAmbulanceOtp);
 router.post('/verifyotp', verifyAmbulance);
 router.post('/update', updateAmbulance);
 router.post('/status', updateStatus);

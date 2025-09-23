@@ -1,9 +1,10 @@
 import express from 'express';
-import { verifyUser, updateUser, sosAmbulance, sosOfficer } from '../controllers/users.controller.js';
+import { verifyUser, updateUser, sosAmbulance, sosOfficer, sendUserOtp } from '../controllers/users.controller.js';
 
 const router = express.Router();
 
 // Authentication & Profile
+router.post('/sendotp', sendUserOtp);
 router.post('/verifyotp', verifyUser);
 router.post('/update', updateUser);
 // SOS Routes
