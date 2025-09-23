@@ -46,10 +46,28 @@ export const verifyAmbulance = async (req, res) => {
 export const updateAmbulance = async (req, res) => {
   try {
     const {
-      phone, unitId, vehiclePlate, registrationNumber, makeModel, color, agencyName, ownership,
-      region, baseStation, capabilities, crew, currentLocation
+      phone,
+      unitId,
+      vehiclePlate,
+      registrationNumber,
+      makeModel,
+      color,
+      agencyName,
+      ownership,
+      region,
+      baseStation,
+      capabilities,
+      crew,
+      currentLocation
     } = req.body || {};
-    if (!phone) return res.status(400).json({ success: false, message: 'phone required' });
+
+    if (!phone) {
+      return res.status(400).json({ success: false, message: 'phone required' });
+    }
+
+    const isValidCoords = (v) => Array.isArray(v) && v.length === 2 && v.every((n) => Number.isFinite(n));
+    const toPoint = (p) => (p?.type === 'Point' && isValidCoords(p?.coordinates)) ? { type: 'Point', coordinates: p.coordinates } : undefined;
+
     const updateData = {};
     if (unitId) updateData.unitId = unitId;
     if (vehiclePlate) updateData.vehiclePlate = vehiclePlate;
@@ -59,17 +77,36 @@ export const updateAmbulance = async (req, res) => {
     if (agencyName) updateData.agencyName = agencyName;
     if (ownership) updateData.ownership = ownership;
     if (region) updateData.region = region;
-    if (baseStation) updateData.baseStation = baseStation;
     if (capabilities) updateData.capabilities = capabilities;
     if (crew) updateData.crew = crew;
-    if (currentLocation) updateData.currentLocation = currentLocation;
 
-    const ambulance = await Ambulance.findOneAndUpdate({ phone }, { $set: updateData }, { new: true });
+    if (currentLocation) {
+      const pt = toPoint(currentLocation);
+      if (pt) updateData.currentLocation = pt;
+    }
+
+    if (baseStation) {
+      if (typeof baseStation === 'object' && baseStation !== null) {
+        if ('name' in baseStation) (updateData.baseStation ??= {}).name = baseStation.name;
+        if ('address' in baseStation) (updateData.baseStation ??= {}).address = baseStation.address;
+        const bsPt = toPoint(baseStation.location);
+        if (bsPt) updateData['baseStation.location'] = bsPt;
+      }
+    }
+
+    const ambulance = await Ambulance.findOneAndUpdate(
+      { phone },
+      { $set: updateData },
+      { new: true, runValidators: true }
+    );
+
     return res.json({ success: true, ambulance });
-  } catch {
-    return res.status(500).json({ success: false, message: 'Server error' });
+  } catch (err) {
+    console.error('updateAmbulance error:', err?.message);
+    return res.status(500).json({ success: false, message: err?.message || 'Server error' });
   }
 };
+
 
 export const updateStatus = async (req, res) => {
   try {

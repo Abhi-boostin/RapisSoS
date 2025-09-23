@@ -40,23 +40,38 @@ export const verifyOfficer = async (req, res) => {
 };
 
 export const updateOfficer = async (req, res) => {
-  try {
-    const { phone, fullName, personalContact, employeeId, rank, agency, currentLocation } = req.body || {};
-    if (!phone) return res.status(400).json({ success: false, message: 'phone required' });
-    const updateData = {};
-    if (fullName) updateData.fullName = fullName;
-    if (personalContact) updateData.personalContact = personalContact;
-    if (employeeId) updateData.employeeId = employeeId;
-    if (rank) updateData.rank = rank;
-    if (agency) updateData.agency = agency;
-    if (currentLocation) updateData.currentLocation = currentLocation;
-
-    const officer = await Officer.findOneAndUpdate({ phone }, { $set: updateData }, { new: true });
-    return res.json({ success: true, officer });
-  } catch {
-    return res.status(500).json({ success: false, message: 'Server error' });
-  }
-};
+    try {
+      const { phone, fullName, personalContact, employeeId, rank, agency, currentLocation } = req.body || {};
+      if (!phone) return res.status(400).json({ success: false, message: 'phone required' });
+  
+      const isValidCoords = (v) => Array.isArray(v) && v.length === 2 && v.every((n) => Number.isFinite(n));
+      const toPoint = (p) => (p?.type === 'Point' && isValidCoords(p?.coordinates)) ? { type: 'Point', coordinates: p.coordinates } : undefined;
+  
+      const updateData = {};
+      if (fullName) updateData.fullName = fullName;
+      if (personalContact) updateData.personalContact = personalContact;
+      if (employeeId) updateData.employeeId = employeeId;
+      if (rank) updateData.rank = rank;
+      if (agency) updateData.agency = agency;
+  
+      if (currentLocation) {
+        const pt = toPoint(currentLocation);
+        if (pt) updateData.currentLocation = pt;
+      }
+  
+      const officer = await Officer.findOneAndUpdate(
+        { phone },
+        { $set: updateData },
+        { new: true, runValidators: true }
+      );
+  
+      return res.json({ success: true, officer });
+    } catch (err) {
+      console.error('updateOfficer error:', err?.message);
+      return res.status(500).json({ success: false, message: err?.message || 'Server error' });
+    }
+  };
+  
 
 export const updateStatus = async (req, res) => {
   try {

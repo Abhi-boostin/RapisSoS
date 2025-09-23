@@ -37,7 +37,7 @@ const CapabilitiesSchema = new mongoose.Schema(
 
 const GeoPointSchema = new mongoose.Schema(
   {
-    type: { type: String, enum: ["Point"] }, // no default; only set when valid
+    type: { type: String, enum: ["Point"] }, // no default; set only when valid
     coordinates: {
       type: [Number],
       validate: {
@@ -67,7 +67,7 @@ const AmbulanceSchema = new mongoose.Schema(
     baseStation: {
       name: String,
       address: String,
-      location: { type: GeoPointSchema, default: undefined } // only present when valid
+      location: { type: GeoPointSchema, default: undefined } // set only when valid
     },
 
     capabilities: CapabilitiesSchema,
@@ -75,25 +75,23 @@ const AmbulanceSchema = new mongoose.Schema(
 
     status: { type: String, enum: ["available", "enroute", "busy", "offline"], default: "available" },
 
-    currentLocation: { type: GeoPointSchema, default: undefined }, // only present when valid
+    currentLocation: { type: GeoPointSchema, default: undefined }, // set only when valid
 
     lastStatusAt: { type: Date, default: Date.now }
   },
   { timestamps: true }
 );
 
-// Geospatial index stays; absent field is fine, invalid geo is not
 AmbulanceSchema.index({ currentLocation: '2dsphere' });
 
-// Sanitize before save
 AmbulanceSchema.pre('save', function(next) {
   if (this.currentLocation) this.currentLocation = sanitizeGeo(this.currentLocation);
-  if (this.baseStation && this.baseStation.location)
+  if (this.baseStation && this.baseStation.location) {
     this.baseStation.location = sanitizeGeo(this.baseStation.location);
+  }
   next();
 });
 
-// Sanitize in atomic updates
 AmbulanceSchema.pre('findOneAndUpdate', function(next) {
   const update = this.getUpdate() || {};
   const $set = update.$set || update;
@@ -102,14 +100,18 @@ AmbulanceSchema.pre('findOneAndUpdate', function(next) {
     const cleaned = sanitizeGeo($set.currentLocation);
     if (cleaned) $set.currentLocation = cleaned; else delete $set.currentLocation;
   }
+
   if ($set.baseStation?.location) {
     const cleaned = sanitizeGeo($set.baseStation.location);
-    if (cleaned) $set['baseStation.location'] = cleaned; else {
+    if (cleaned) {
+      $set['baseStation.location'] = cleaned;
+    } else {
       delete $set['baseStation.location'];
       if ($set.baseStation) delete $set.baseStation.location;
     }
   }
-  if (!update.$set && $set !== update) update.$set = $set; // normalize
+
+  if (!update.$set && $set !== update) update.$set = $set;
   this.setUpdate(update);
   next();
 });
