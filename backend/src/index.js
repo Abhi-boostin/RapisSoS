@@ -1,5 +1,5 @@
 // src/index.js
-import 'dotenv/config'; // must run before any other imports
+import 'dotenv/config';
 
 import express from 'express';
 import cors from 'cors';
@@ -9,7 +9,6 @@ import usersRouter from './routes/users.js';
 import officersRouter from './routes/officers.js';
 import ambulancesRouter from './routes/ambulances.js';
 
-// Required environment variables
 const REQUIRED_ENV_VARS = [
   'MONGODB_URI',
   'TWILIO_ACCOUNT_SID',
@@ -17,7 +16,6 @@ const REQUIRED_ENV_VARS = [
   'TWILIO_VERIFY_SERVICE_SID',
 ];
 
-// Validate environment variables (now populated)
 for (const key of REQUIRED_ENV_VARS) {
   if (!process.env[key]) {
     console.error(`Missing required environment variable: ${key}`);
@@ -25,10 +23,8 @@ for (const key of REQUIRED_ENV_VARS) {
   }
 }
 
-// Create Express app
 const app = express();
 
-// Middleware
 app.use(
   cors({
     origin: process.env.FRONTEND_URL || '*',
@@ -38,20 +34,18 @@ app.use(
 );
 app.use(express.json());
 
-// Health check
-app.get('/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
+app.get('/health', (_req, res) =>
+  res.json({ status: 'ok', timestamp: new Date().toISOString() })
+);
 
-// API Routes
 app.use('/users', usersRouter);
 app.use('/officers', officersRouter);
 app.use('/ambulances', ambulancesRouter);
 
-// 404
 app.use((_req, res) => {
   res.status(404).json({ success: false, message: 'Route not found' });
 });
 
-// Global error handler
 app.use((err, _req, res, _next) => {
   console.error('Unhandled error:', err);
   if (err.name === 'ValidationError') {
@@ -70,21 +64,28 @@ app.use((err, _req, res, _next) => {
   }
   res.status(500).json({
     success: false,
-    message: process.env.NODE_ENV === 'development' ? err.message : 'Internal Server Error',
+    message:
+      process.env.NODE_ENV === 'development' ? err.message : 'Internal Server Error',
   });
 });
 
-// Server startup
 const PORT = process.env.PORT || 5000;
 
 async function start() {
   try {
-    await mongoose.connect(process.env.MONGODB_URI, { useNewUrlParser: true, useUnifiedTopology: true });
+    await mongoose.connect(process.env.MONGODB_URI, {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+    });
     console.log('✅ MongoDB connected');
 
-    const collections = ['ambulances', 'officers'];
+    const collections = ['ambulances', 'officers', 'requests'];
     for (const collection of collections) {
-      await mongoose.connection.collection(collection).createIndex({ currentLocation: '2dsphere' });
+      try {
+        await mongoose.connection
+          .collection(collection)
+          .createIndex({ currentLocation: '2dsphere' });
+      } catch {}
     }
     console.log('✅ Geospatial indexes created');
 
