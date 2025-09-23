@@ -1,12 +1,23 @@
 import express from 'express';
-import { verifyOtp, updateAmbulance, updateStatus, handleRequest, getRequests } from '../controllers/ambulances.controller.js';
+import { 
+    verifyOtp, 
+    updateAmbulance, 
+    updateStatus, 
+    getRequests,
+    acceptRequest,
+    declineRequest 
+} from '../controllers/ambulances.controller.js';
 
 const router = express.Router();
 
+// Authentication & Profile
 router.post('/verifyotp', verifyOtp);
 router.post('/update', updateAmbulance);
 router.post('/status', updateStatus);
-router.post('/request', handleRequest);
-router.get('/requests', getRequests);
 
-export default router; 
+// Request handling
+router.get('/requests', getRequests);
+router.post('/requests/:id/accept', acceptRequest);
+router.post('/requests/:id/decline', declineRequest);
+
+export default router;

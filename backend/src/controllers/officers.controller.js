@@ -81,51 +81,113 @@ export const getRequests = async (req, res) => {
     });
 };
 
-// Handle emergency request response (accept/reject)
-export const handleRequest = async (req, res) => {
-    const { requestId, action, officerPhone } = req.body;
+// Accept emergency request
+export const acceptRequest = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { officerPhone } = req.body;
 
-    const request = await Request.findById(requestId);
-    if (!request) {
-        return res.json({ success: false, message: 'Request not found' });
-    }
+        const request = await Request.findById(id);
+        if (!request || request.status !== "pending") {
+            return res.status(400).json({ success: false, message: "Request not available" });
+        }
 
-    if (request.assignedResponderPhone !== officerPhone) {
-        return res.json({ success: false, message: 'Not authorized to handle this request' });
-    }
+        if (request.assignedResponderPhone !== officerPhone) {
+            return res.status(400).json({ success: false, message: "Not authorized" });
+        }
 
-    if (action === 'accept') {
-        request.status = 'accepted';
+        // Update request
+        request.status = "accepted";
         request.acceptedAt = new Date();
         await request.save();
 
-        // Update officer status to busy
+        // Update officer status to off
         await Officer.findOneAndUpdate(
             { phone: officerPhone },
             { 
                 $set: { 
-                    status: 'busy',
+                    status: "off",
                     lastStatusUpdate: new Date()
                 }
             }
         );
 
-        return res.json({ 
-            success: true, 
-            message: 'Request accepted',
+        return res.json({
+            success: true,
+            message: "Request accepted",
+            request,
             userLocation: request.userLocation,
             mapsUrl: request.mapsUrl
         });
-    } else if (action === 'reject') {
-        request.status = 'declined';
+    } catch (err) {
+        console.error("Accept Request Error:", err);
+        return res.status(500).json({ success: false, message: "Server error" });
+    }
+};
+
+// Decline emergency request
+export const declineRequest = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { officerPhone } = req.body;
+
+        const request = await Request.findById(id);
+        if (!request || request.status !== "pending") {
+            return res.status(400).json({ success: false, message: "Request not available" });
+        }
+
+        if (request.assignedResponderPhone !== officerPhone) {
+            return res.status(400).json({ success: false, message: "Not authorized" });
+        }
+
+        // Mark as declined
+        request.status = "declined";
         request.declinedAt = new Date();
         await request.save();
 
-        return res.json({ 
-            success: true, 
-            message: 'Request declined'
-        });
-    }
+        // Find next nearest officer
+        const nextOfficer = await Officer.findOne({
+            phone: { $ne: officerPhone },
+            status: "available",
+            currentLocation: {
+                $near: {
+                    $geometry: {
+                        type: "Point",
+                        coordinates: request.userLocation.coordinates
+                    },
+                    $maxDistance: 10000 // 10km radius
+                }
+            }
+        }).select("phone currentLocation badgeNumber department");
 
-    return res.json({ success: false, message: 'Invalid action' });
-}; 
+        if (!nextOfficer) {
+            return res.json({ success: false, message: "No other officers available" });
+        }
+
+        // Calculate distance for next officer
+        const [long, lat] = request.userLocation.coordinates;
+        const [officerLong, officerLat] = nextOfficer.currentLocation.coordinates;
+        const distance = calculateDistance(lat, long, officerLat, officerLong);
+
+        // Reassign request
+        request.assignedResponderPhone = nextOfficer.phone;
+        request.status = "pending";
+        request.expireAt = new Date(Date.now() + 5 * 60000); // Reset 5-minute timer
+        request.assignedDistanceMeters = distance * 1000; // Convert km to meters
+        await request.save();
+
+        return res.json({
+            success: true,
+            message: "Request reassigned",
+            request,
+            nextOfficer: {
+                badgeNumber: nextOfficer.badgeNumber,
+                department: nextOfficer.department,
+                distance: distance.toFixed(1)
+            }
+        });
+    } catch (err) {
+        console.error("Decline Request Error:", err);
+        return res.status(500).json({ success: false, message: "Server error" });
+    }
+};
