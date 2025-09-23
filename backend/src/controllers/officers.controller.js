@@ -1,24 +1,40 @@
 import Officer from '../models/Officer.js';
 import Request from '../models/Request.js';
-import { isE164Phone } from '../utils/validate.js';
-import { verifyOtp } from '../utils/otp.js';
+import { verifyOtp as verifyOtpUtil } from '../utils/otp.js';
 
 // Verify OTP and create/update officer
-export const verifyOtp = async (req, res) => {
-    const { phone, code } = req.body;
-    
-    const isValid = await verifyOtp(phone, code);
-    if (!isValid) {
-        return res.status(400).json({ error: 'Invalid OTP' });
+export const verifyOfficer = async (req, res) => {
+    try {
+        const { phone, code } = req.body;
+        
+        // Verify OTP
+        const isValid = await verifyOtpUtil(phone, code);
+        if (!isValid) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Invalid OTP' 
+            });
+        }
+
+        // Create or update officer
+        let officer = await Officer.findOneAndUpdate(
+            { phone },
+            { $set: { phone, phoneVerified: true } },
+            { upsert: true, new: true }
+        );
+
+        return res.json({ 
+            success: true, 
+            message: 'OTP verified successfully',
+            officer 
+        });
+    } catch (err) {
+        console.error('Officer Verify Error:', err);
+        return res.status(500).json({ 
+            success: false, 
+            message: 'Server error' 
+        });
     }
-
-    let officer = await Officer.findOneAndUpdate(
-        { phone },
-        { $set: { phone, phoneVerified: true } },
-        { upsert: true, new: true }
-    );
-
-    return res.json({ success: true, officer });
 };
 
 // Update officer data

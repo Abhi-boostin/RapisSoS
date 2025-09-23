@@ -29,26 +29,27 @@ export default function VerifyUser() {
     setError('');
 
     try {
-      const res = await fetch('http://localhost:4000/api/otp/verify-phone', {
+      const formattedPhone = phone.startsWith('+91') ? phone : `+91${phone}`;
+      
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/users/verifyotp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone, code })
+        body: JSON.stringify({ 
+          phone: formattedPhone, 
+          code 
+        })
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Invalid or expired code');
-      
-      // Store phone in localStorage for persistence
-      localStorage.setItem('userPhone', phone);
-      
-      // Check if user needs to complete profile
-      if (data.requiresProfile) {
-        router.push(`/user/info?phone=${encodeURIComponent(phone)}`);
-      } else {
-        localStorage.setItem('userId', data.userId);
-        localStorage.setItem('token', data.token);
-        router.push('/user/dashboard');
+      if (!data.success) {
+        throw new Error(data.message || 'Verification failed');
       }
+      
+      // Store phone in localStorage
+      localStorage.setItem('userPhone', formattedPhone);
+      
+      // Redirect to SOS page
+      router.push('/sos');
     } catch (err) {
       setError(err.message || 'Failed to verify OTP. Please try again.');
     } finally {

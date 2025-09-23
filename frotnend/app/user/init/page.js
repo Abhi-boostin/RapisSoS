@@ -28,14 +28,16 @@ export default function UserInit() {
     }
 
     try {
-      const res = await fetch('http://localhost:4000/api/users/init', {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/users/sendotp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone })
       });
       
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to send OTP');
+      if (!data.success) {
+        throw new Error(data.message || 'Failed to send OTP');
+      }
       
       router.push(`/user/verify?phone=${encodeURIComponent(phone)}`);
     } catch (err) {

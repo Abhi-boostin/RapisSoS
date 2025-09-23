@@ -1,6 +1,6 @@
 import express from 'express';
 import { 
-    verifyOtp, 
+    verifyAmbulance, 
     updateAmbulance, 
     updateStatus, 
     getRequests,
@@ -11,7 +11,7 @@ import {
 const router = express.Router();
 
 // Authentication & Profile
-router.post('/verifyotp', verifyOtp);
+router.post('/verifyotp', verifyAmbulance);
 router.post('/update', updateAmbulance);
 router.post('/status', updateStatus);
 

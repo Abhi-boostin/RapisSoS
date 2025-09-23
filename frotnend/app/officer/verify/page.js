@@ -29,27 +29,27 @@ export default function VerifyOfficer() {
     setError('');
 
     try {
-      const res = await fetch('http://localhost:4000/api/otp/verify-phone', {
+      const formattedPhone = phone.startsWith('+91') ? phone : `+91${phone}`;
+      
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/officers/verifyotp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone, code, type: 'officer' })
+        body: JSON.stringify({ 
+          phone: formattedPhone,
+          code 
+        })
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Invalid or expired code');
-      
-      // Store phone in localStorage for persistence
-      localStorage.setItem('officerPhone', phone);
-      
-      // Check if officer needs to complete profile
-      if (data.requiresProfile) {
-        router.push(`/officer/details?phone=${encodeURIComponent(phone)}`);
-      } else {
-        // If profile exists, store the officer ID and token
-        localStorage.setItem('officerId', data.officerId);
-        localStorage.setItem('token', data.token);
-        router.push('/officer/dashboard');
+      if (!data.success) {
+        throw new Error(data.message || 'Verification failed');
       }
+      
+      // Store officer info
+      localStorage.setItem('officerPhone', formattedPhone);
+      
+      // Redirect to dispatch page
+      router.push('/dispatch');
     } catch (err) {
       setError(err.message || 'Failed to verify OTP. Please try again.');
     } finally {

@@ -19,13 +19,16 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
 }
 
 // ---------------------- Verify OTP ----------------------
-export const verifyOtp = async (req, res) => {
+export const verifyUser = async (req, res) => {
     try {
         const { phone, code } = req.body;
 
         const isValid = await verifyOtpUtil(phone, code);
         if (!isValid) {
-            return res.status(400).json({ error: 'Invalid OTP' });
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Invalid OTP' 
+            });
         }
 
         let user = await User.findOneAndUpdate(
@@ -34,7 +37,11 @@ export const verifyOtp = async (req, res) => {
             { upsert: true, new: true }
         );
 
-        return res.json({ success: true, user });
+        return res.json({ 
+            success: true, 
+            message: 'OTP verified successfully',
+            user 
+        });
     } catch (err) {
         console.error("OTP Verify Error:", err);
         return res.status(500).json({ success: false, message: "Server error" });
@@ -191,4 +198,3 @@ export const sosOfficer = async (req, res) => {
         return res.status(500).json({ success: false, message: "Server error" });
     }
 };
-	

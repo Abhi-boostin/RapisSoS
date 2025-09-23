@@ -1,142 +1,136 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { getCurrentLocation, formatDistance } from '@/utils/helpers';
+import { endpoints } from '@/config/api';
 import Card from '@/components/Card';
 import Button from '@/components/Button';
 
 export default function SOS() {
-  const [phone, setPhone] = useState('');
-  const [serviceType, setServiceType] = useState('police');
-  const [description, setDescription] = useState('');
-  const [status, setStatus] = useState('');
-  const [loading, setLoading] = useState(false);
-  const router = useRouter();
+    const router = useRouter();
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+    const [userPhone, setUserPhone] = useState('');
+    const [responder, setResponder] = useState(null);
+    const [requestType, setRequestType] = useState('');
 
-  useEffect(() => {
-    const savedPhone = localStorage.getItem('phone');
-    if (!savedPhone) {
-      router.replace('/user/init');
-    } else {
-      setPhone(savedPhone);
-    }
-  }, [router]);
+    useEffect(() => {
+        const phone = localStorage.getItem('userPhone');
+        if (!phone) {
+            router.replace('/user/init');
+        } else {
+            setUserPhone(phone);
+        }
+    }, [router]);
 
-  const sendSOS = async () => {
-    setLoading(true);
-    setStatus('Locating your position...');
+    const handleSOS = async (type) => {
+        try {
+            setLoading(true);
+            setError('');
+            setRequestType(type);
 
-    try {
-      const position = await new Promise((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(resolve, reject, {
-          enableHighAccuracy: true,
-          timeout: 15000,
-          maximumAge: 0
-        });
-      });
+            // Get current location
+            const location = await getCurrentLocation();
+            
+            // Send SOS request
+            const endpoint = type === 'ambulance' ? endpoints.sosAmbulance : endpoints.sosOfficer;
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ location, userPhone })
+            });
 
-      const { latitude, longitude } = position.coords;
-      setStatus('Dispatching help...');
+            const data = await response.json();
+            if (!data.success) {
+                throw new Error(data.message || 'Failed to send SOS');
+            }
 
-      // Send SOS signal
-      await fetch('http://localhost:4000/api/sos', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({
-          phone,
-          type: serviceType,
-          lat: latitude,
-          lng: longitude,
-          description
-        })
-      });
+            // Update state with responder info
+            setResponder(data[type === 'ambulance' ? 'ambulance' : 'officer']);
+            
+        } catch (err) {
+            setError(err.message || 'Something went wrong');
+            setResponder(null);
+        } finally {
+            setLoading(false);
+        }
+    };
 
-      // Create dispatch request
-      const res = await fetch('http://localhost:4000/api/dispatch/create', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({
-          phone,
-          serviceType,
-          lat: latitude,
-          lng: longitude,
-          description
-        })
-      });
+    if (!userPhone) return null;
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to dispatch help');
+    return (
+        <div className="min-h-screen bg-gray-50 p-4">
+            <div className="max-w-md mx-auto">
+                <Card className={error || responder ? 'mb-4' : ''}>
+                    <h1 className="text-2xl font-bold text-red-600 mb-6">Emergency SOS</h1>
 
-      setStatus('Help is on the way! Request ID: ' + data.requestId);
-    } catch (err) {
-      setStatus(err.message || 'Failed to send SOS. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
+                    {error ? (
+                        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">
+                            {error}
+                        </div>
+                    ) : null}
 
-  if (!phone) {
-    return null;
-  }
+                    {responder ? (
+                        <div className="bg-green-50 p-4 rounded-lg space-y-3">
+                            <h2 className="text-lg font-semibold text-green-800">
+                                Help is on the way!
+                            </h2>
+                            
+                            {requestType === 'ambulance' ? (
+                                <>
+                                    <p><span className="font-medium">Ambulance Unit:</span> {responder.unitId}</p>
+                                    <p><span className="font-medium">Vehicle:</span> {responder.vehicleNumber}</p>
+                                    <p><span className="font-medium">Crew:</span> {responder.crew}</p>
+                                </>
+                            ) : (
+                                <>
+                                    <p><span className="font-medium">Badge Number:</span> {responder.badgeNumber}</p>
+                                    <p><span className="font-medium">Department:</span> {responder.department}</p>
+                                </>
+                            )}
 
-  return (
-    <div className="max-w-md mx-auto">
-      <Card className={status ? 'mb-4' : ''}>
-        <h1 className="text-2xl font-bold text-red-600 mb-6">Emergency SOS</h1>
-        
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Emergency Service
-            </label>
-            <select
-              value={serviceType}
-              onChange={(e) => setServiceType(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              disabled={loading}
-            >
-              <option value="police">Police</option>
-              <option value="ambulance">Ambulance</option>
-            </select>
-          </div>
+                            <div className="border-t border-green-200 pt-3 mt-3">
+                                <p className="text-green-800">
+                                    <span className="font-medium">Distance:</span> {responder.distance}km
+                                </p>
+                                <p className="text-green-800">
+                                    <span className="font-medium">ETA:</span> ~{responder.estimatedMinutes} minutes
+                                </p>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="space-y-4">
+                            <Button
+                                onClick={() => handleSOS('ambulance')}
+                                className="w-full !bg-red-600 hover:!bg-red-700"
+                                disabled={loading}
+                            >
+                                {loading && requestType === 'ambulance' 
+                                    ? 'Requesting Ambulance...' 
+                                    : '🚑 Request Ambulance'}
+                            </Button>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Description (Optional)
-            </label>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Describe your emergency..."
-              rows={3}
-              disabled={loading}
-            />
-          </div>
+                            <Button
+                                onClick={() => handleSOS('police')}
+                                className="w-full !bg-blue-600 hover:!bg-blue-700"
+                                disabled={loading}
+                            >
+                                {loading && requestType === 'police'
+                                    ? 'Requesting Police...'
+                                    : '👮 Request Police'}
+                            </Button>
+                        </div>
+                    )}
+                </Card>
 
-          <Button
-            onClick={sendSOS}
-            className="w-full !bg-red-600 hover:!bg-red-700"
-            disabled={loading}
-          >
-            {loading ? 'Sending...' : 'Send Emergency SOS'}
-          </Button>
+                {responder && (
+                    <div className="text-center text-sm text-gray-600 mt-4">
+                        The responder has been notified and will arrive shortly.
+                        Please stay at your current location.
+                    </div>
+                )}
+            </div>
         </div>
-      </Card>
-
-      {status && (
-        <Card className={status.includes('Help is on the way') ? 'bg-green-50' : 'bg-blue-50'}>
-          <p className="text-center font-medium">
-            {status}
-          </p>
-        </Card>
-      )}
-    </div>
-  );
-} 
+    );
+}
