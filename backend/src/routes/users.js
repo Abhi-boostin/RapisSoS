@@ -1,8 +1,13 @@
 import express from 'express';
-import { upsertUser } from '../controllers/users.controller.js';
+import { verifyOtp, updateUser, sosAmbulance, sosOfficer } from '../controllers/users.controller.js';
 
 const router = express.Router();
 
-router.post('/init', upsertUser);
+// Authentication & Profile
+router.post('/verifyotp', verifyOtp);
+router.post('/update', updateUser);
+// SOS Routes
+router.post('/sos/ambulance', sosAmbulance);
+router.post('/sos/officer', sosOfficer);
 
 export default router;

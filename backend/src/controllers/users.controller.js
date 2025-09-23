@@ -1,24 +1,77 @@
 import User from '../models/User.js';
-import { isE164Phone } from '../utils/validate.js';
+import Officer from '../models/Officer.js';
+import Ambulance from '../models/Ambulance.js';
+import { verifyOtp as verifyOtpUtil } from '../utils/otp.js';
 
-export const upsertUser = async (req, res) => {
-	try {
-		const { phone, ...rest } = req.body || {};
-		if (!phone || !isE164Phone(phone)) {
-			return res.status(400).json({ error: 'phone required (E.164)' });
-		}
+// Verify OTP and create user
+export const verifyOtp = async (req, res) => {
+    const { phone, code } = req.body;
+    
+    const isValid = await verifyOtpUtil(phone, code);
+    if (!isValid) {
+        return res.status(400).json({ error: 'Invalid OTP' });
+    }
 
-		// Never allow phoneVerified to be set here
-		if ('phoneVerified' in rest) delete rest.phoneVerified;
+    let user = await User.findOneAndUpdate(
+        { phone },
+        { $set: { phone, phoneVerified: true } },
+        { upsert: true, new: true }
+    );
 
-		const user = await User.findOneAndUpdate(
-			{ phone },
-			{ $set: { phone, ...rest } },
-			{ upsert: true, new: true }
-		);
+    return res.json({ success: true, user });
+};
 
-		return res.json({ user });
-	} catch (e) {
-		return res.status(500).json({ error: e.message });
-	}
+// Update user data
+export const updateUser = async (req, res) => {
+    const { phone, name, emergencyContacts, location } = req.body;
+    
+    const user = await User.findOneAndUpdate(
+        { phone },
+        { $set: { name, emergencyContacts, location } },
+        { new: true }
+    );
+
+    return res.json({ success: true, user });
+};
+
+// SOS for ambulance
+export const sosAmbulance = async (req, res) => {
+    const { location } = req.body;
+    const [long, lat] = location.coordinates;
+
+    const ambulance = await Ambulance.findOne({
+        location: {
+            $near: {
+                $geometry: {
+                    type: "Point",
+                    coordinates: [long, lat]
+                },
+                $maxDistance: 10000 // 10km radius
+            }
+        },
+        status: "available"
+    });
+
+    return res.json({ success: true, ambulance });
+};
+
+// SOS for officer
+export const sosOfficer = async (req, res) => {
+    const { location } = req.body;
+    const [long, lat] = location.coordinates;
+
+    const officer = await Officer.findOne({
+        location: {
+            $near: {
+                $geometry: {
+                    type: "Point",
+                    coordinates: [long, lat]
+                },
+                $maxDistance: 10000 // 10km radius
+            }
+        },
+        status: "available"
+    });
+
+    return res.json({ success: true, officer });
 }; 

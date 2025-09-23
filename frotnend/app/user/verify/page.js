@@ -38,10 +38,14 @@ export default function VerifyUser() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Invalid or expired code');
       
+      // Store phone in localStorage for persistence
+      localStorage.setItem('userPhone', phone);
+      
       // Check if user needs to complete profile
       if (data.requiresProfile) {
         router.push(`/user/info?phone=${encodeURIComponent(phone)}`);
       } else {
+        localStorage.setItem('userId', data.userId);
         localStorage.setItem('token', data.token);
         router.push('/user/dashboard');
       }

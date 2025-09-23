@@ -1,14 +1,10 @@
 import express from 'express';
-import { init, verify, register, updateAmbulanceStatus } from '../controllers/ambulances.controller.js';
+import { verifyOtp, updateAmbulance, updateStatus } from '../controllers/ambulances.controller.js';
 
 const router = express.Router();
 
-// Authentication flow
-router.post('/init', init);
-router.post('/verify', verify);
-router.post('/register', register);
-
-// Status updates
-router.post('/status', updateAmbulanceStatus);
+router.post('/verifyotp', verifyOtp);
+router.post('/update', updateAmbulance);
+router.post('/status', updateStatus);
 
 export default router; 
