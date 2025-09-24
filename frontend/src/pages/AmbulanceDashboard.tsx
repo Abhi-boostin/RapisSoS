@@ -8,8 +8,8 @@ import { RequestList } from '../components/RequestList';
 import { RequestDetail } from '../components/RequestDetail';
 import { ErrorBanner } from '../components/ErrorBanner';
 import { Toast } from '../components/Toast';
+import { useAmbulanceRequestPolling } from '../hooks/useAmbulanceRequestPolling';
 import { 
-  getAmbulanceRequests, 
   acceptAmbulanceRequest, 
   declineAmbulanceRequest, 
   setAmbulanceStatus,
@@ -20,39 +20,19 @@ import { parseAPIError, APIError } from '../api/client';
 export function AmbulanceDashboard() {
   const navigate = useNavigate();
   const { appState, clearState } = useAppState();
-  const [requests, setRequests] = useState<SOSRequest[]>([]);
   const [selectedRequestId, setSelectedRequestId] = useState<string>('');
-  const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [currentStatus, setCurrentStatus] = useState('available');
-  const [error, setError] = useState<APIError | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
+  // Use the new polling hook
+  const { requests, loading, error, retry } = useAmbulanceRequestPolling(appState.phone);
 
   React.useEffect(() => {
     if (!appState.phone || !appState.profileComplete) {
       navigate('/');
     }
   }, [appState.phone, appState.profileComplete, navigate]);
-
-  const fetchRequests = async () => {
-    if (!appState.phone) return;
-    
-    setLoading(true);
-    setError(null);
-    
-    try {
-      const response = await getAmbulanceRequests(appState.phone);
-      setRequests(response.requests || []);
-    } catch (err) {
-      setError(parseAPIError(err));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchRequests();
-  }, [appState.phone]);
 
   const handleStatusChange = async (status: string) => {
     if (!appState.phone) return;
@@ -74,7 +54,6 @@ export function AmbulanceDashboard() {
     try {
       const response = await acceptAmbulanceRequest(selectedRequestId, appState.phone);
       setToast({ message: response.message || 'Request accepted successfully', type: 'success' });
-      await fetchRequests();
       setSelectedRequestId('');
     } catch (err) {
       const error = parseAPIError(err);
@@ -99,7 +78,6 @@ export function AmbulanceDashboard() {
       }
       
       setToast({ message, type: 'success' });
-      await fetchRequests();
       setSelectedRequestId('');
     } catch (err) {
       const error = parseAPIError(err);
@@ -147,7 +125,7 @@ export function AmbulanceDashboard() {
 
       {/* Main Content */}
       <div className="max-w-6xl mx-auto px-4 py-6">
-        <ErrorBanner error={error} onDismiss={() => setError(null)} />
+        <ErrorBanner error={error} onDismiss={() => retry()} />
 
         <div className="grid lg:grid-cols-5 gap-6 h-[calc(100vh-200px)]">
           {/* Sidebar - Request List */}
@@ -157,7 +135,7 @@ export function AmbulanceDashboard() {
                 Pending Requests ({requests.length})
               </h2>
               <button
-                onClick={fetchRequests}
+                onClick={retry}
                 disabled={loading}
                 className="p-2 text-gray-500 hover:text-gray-700 disabled:opacity-50"
               >
