@@ -5,23 +5,31 @@ import User from '../models/User.js';
 import { verifyOtp as verifyOtpUtil, sendOtp as sendOtpUtil } from '../utils/otp.js';
 
 function kmFromMeters(m) { return (m || 0) / 1000; }
-
-// Simple estimate helpers (can be tuned)
 function etaFromDistanceKmAmbulance(km) { return Math.round(2 + km * 2); }
 function etaFromDistanceKmOfficer(km) { return Math.round(1 + km * 1.5); }
 
+// OTP send
 export const sendAmbulanceOtp = async (req, res) => {
   try {
     const { phone } = req.body || {};
     if (!phone) return res.status(400).json({ success: false, message: 'phone required' });
     const resp = await sendOtpUtil(phone);
-    if (!resp.success) return res.status(400).json({ success: false, message: resp.error, code: resp.code, status: resp.status, moreInfo: resp.moreInfo });
+    if (!resp.success) {
+      return res.status(400).json({
+        success: false,
+        message: resp.error,
+        code: resp.code,
+        status: resp.status,
+        moreInfo: resp.moreInfo,
+      });
+    }
     return res.json({ success: true, message: 'OTP send initiated', to: resp.to });
   } catch (err) {
     return res.status(500).json({ success: false, message: err?.message || 'Server error' });
   }
 };
 
+// OTP verify
 export const verifyAmbulance = async (req, res) => {
   try {
     const { phone, code } = req.body || {};
@@ -36,13 +44,19 @@ export const verifyAmbulance = async (req, res) => {
       );
       return res.json({ success: true, message: 'OTP verified successfully', ambulance });
     }
-    return res.status(400).json({ success: false, message: check.error || 'Invalid or expired OTP', code: check.code, status: check.status, moreInfo: check.moreInfo });
+    return res.status(400).json({
+      success: false,
+      message: check.error || 'Invalid or expired OTP',
+      code: check.code,
+      status: check.status,
+      moreInfo: check.moreInfo,
+    });
   } catch (err) {
     return res.status(500).json({ success: false, message: err?.message || 'Server error' });
   }
 };
 
-// Full profile update
+// Full profile update (conflict-free baseStation updates + geo sanitization)
 export const updateAmbulance = async (req, res) => {
   try {
     const {
@@ -61,42 +75,41 @@ export const updateAmbulance = async (req, res) => {
       currentLocation
     } = req.body || {};
 
-    if (!phone) {
-      return res.status(400).json({ success: false, message: 'phone required' });
-    }
+    if (!phone) return res.status(400).json({ success: false, message: 'phone required' });
 
     const isValidCoords = (v) => Array.isArray(v) && v.length === 2 && v.every((n) => Number.isFinite(n));
     const toPoint = (p) => (p?.type === 'Point' && isValidCoords(p?.coordinates)) ? { type: 'Point', coordinates: p.coordinates } : undefined;
 
-    const updateData = {};
-    if (unitId) updateData.unitId = unitId;
-    if (vehiclePlate) updateData.vehiclePlate = vehiclePlate;
-    if (registrationNumber) updateData.registrationNumber = registrationNumber;
-    if (makeModel) updateData.makeModel = makeModel;
-    if (color) updateData.color = color;
-    if (agencyName) updateData.agencyName = agencyName;
-    if (ownership) updateData.ownership = ownership;
-    if (region) updateData.region = region;
-    if (capabilities) updateData.capabilities = capabilities;
-    if (crew) updateData.crew = crew;
+    const $set = {};
+    // Flat fields
+    if (unitId) $set.unitId = unitId;
+    if (vehiclePlate) $set.vehiclePlate = vehiclePlate;
+    if (registrationNumber) $set.registrationNumber = registrationNumber;
+    if (makeModel) $set.makeModel = makeModel;
+    if (color) $set.color = color;
+    if (agencyName) $set.agencyName = agencyName;
+    if (ownership) $set.ownership = ownership;
+    if (region) $set.region = region;
+    if (capabilities) $set.capabilities = capabilities;
+    if (crew) $set.crew = crew;
 
+    // Geo: currentLocation
     if (currentLocation) {
       const pt = toPoint(currentLocation);
-      if (pt) updateData.currentLocation = pt;
+      if (pt) $set.currentLocation = pt;
     }
 
-    if (baseStation) {
-      if (typeof baseStation === 'object' && baseStation !== null) {
-        if ('name' in baseStation) (updateData.baseStation ??= {}).name = baseStation.name;
-        if ('address' in baseStation) (updateData.baseStation ??= {}).address = baseStation.address;
-        const bsPt = toPoint(baseStation.location);
-        if (bsPt) updateData['baseStation.location'] = bsPt;
-      }
+    // IMPORTANT: use only dotted subpaths for baseStation to avoid parent/child conflicts
+    if (baseStation && typeof baseStation === 'object') {
+      if ('name' in baseStation) $set['baseStation.name'] = baseStation.name;
+      if ('address' in baseStation) $set['baseStation.address'] = baseStation.address;
+      const bsPt = toPoint(baseStation.location);
+      if (bsPt) $set['baseStation.location'] = bsPt;
     }
 
     const ambulance = await Ambulance.findOneAndUpdate(
       { phone },
-      { $set: updateData },
+      Object.keys($set).length ? { $set } : {},
       { new: true, runValidators: true }
     );
 
@@ -107,20 +120,25 @@ export const updateAmbulance = async (req, res) => {
   }
 };
 
-
+// Availability/status
 export const updateStatus = async (req, res) => {
   try {
     const { phone, status } = req.body || {};
     if (!phone || !status) return res.status(400).json({ success: false, message: 'phone and status required' });
     const allowed = ['available', 'enroute', 'busy', 'offline'];
     if (!allowed.includes(status)) return res.status(400).json({ success: false, message: 'invalid status' });
-    const ambulance = await Ambulance.findOneAndUpdate({ phone }, { $set: { status, lastStatusAt: new Date() } }, { new: true });
+    const ambulance = await Ambulance.findOneAndUpdate(
+      { phone },
+      { $set: { status, lastStatusAt: new Date() } },
+      { new: true }
+    );
     return res.json({ success: true, ambulance });
   } catch {
     return res.status(500).json({ success: false, message: 'Server error' });
   }
 };
 
+// Pending requests for this ambulance
 export const getRequests = async (req, res) => {
   try {
     const { phone } = req.query || {};
@@ -167,6 +185,7 @@ export const getRequests = async (req, res) => {
   }
 };
 
+// Accept a request
 export const acceptRequest = async (req, res) => {
   try {
     const { id } = req.params || {};
@@ -217,6 +236,7 @@ export const acceptRequest = async (req, res) => {
   }
 };
 
+// Decline and reassign
 export const declineRequest = async (req, res) => {
   try {
     const { id } = req.params || {};
@@ -250,7 +270,7 @@ export const declineRequest = async (req, res) => {
 
     const [long, lat] = request.userLocation.coordinates;
     const [ambLong, ambLat] = nextAmbulance.currentLocation.coordinates;
-    const distanceKm = Math.hypot(ambLat - lat, ambLong - long); // not accurate but unused in UI here
+    const distanceKm = Math.hypot(ambLat - lat, ambLong - long); // placeholder
 
     request.assignedResponderPhone = nextAmbulance.phone;
     request.status = 'pending';

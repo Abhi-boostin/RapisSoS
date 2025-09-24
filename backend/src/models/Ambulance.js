@@ -37,7 +37,7 @@ const CapabilitiesSchema = new mongoose.Schema(
 
 const GeoPointSchema = new mongoose.Schema(
   {
-    type: { type: String, enum: ["Point"] }, // no default; set only when valid
+    type: { type: String, enum: ["Point"] }, // no default; only when valid
     coordinates: {
       type: [Number],
       validate: {
@@ -67,7 +67,7 @@ const AmbulanceSchema = new mongoose.Schema(
     baseStation: {
       name: String,
       address: String,
-      location: { type: GeoPointSchema, default: undefined } // set only when valid
+      location: { type: GeoPointSchema, default: undefined } // only present when valid
     },
 
     capabilities: CapabilitiesSchema,
@@ -75,7 +75,7 @@ const AmbulanceSchema = new mongoose.Schema(
 
     status: { type: String, enum: ["available", "enroute", "busy", "offline"], default: "available" },
 
-    currentLocation: { type: GeoPointSchema, default: undefined }, // set only when valid
+    currentLocation: { type: GeoPointSchema, default: undefined }, // only present when valid
 
     lastStatusAt: { type: Date, default: Date.now }
   },
@@ -84,6 +84,7 @@ const AmbulanceSchema = new mongoose.Schema(
 
 AmbulanceSchema.index({ currentLocation: '2dsphere' });
 
+// Sanitize on save
 AmbulanceSchema.pre('save', function(next) {
   if (this.currentLocation) this.currentLocation = sanitizeGeo(this.currentLocation);
   if (this.baseStation && this.baseStation.location) {
@@ -92,23 +93,29 @@ AmbulanceSchema.pre('save', function(next) {
   next();
 });
 
+// Conflict-safe sanitize on update
 AmbulanceSchema.pre('findOneAndUpdate', function(next) {
   const update = this.getUpdate() || {};
   const $set = update.$set || update;
 
+  // currentLocation
   if ($set.currentLocation) {
     const cleaned = sanitizeGeo($set.currentLocation);
     if (cleaned) $set.currentLocation = cleaned; else delete $set.currentLocation;
   }
 
-  if ($set.baseStation?.location) {
-    const cleaned = sanitizeGeo($set.baseStation.location);
-    if (cleaned) {
-      $set['baseStation.location'] = cleaned;
-    } else {
-      delete $set['baseStation.location'];
-      if ($set.baseStation) delete $set.baseStation.location;
+  // baseStation handling: avoid parent/dotted conflict
+  const hasParent = $set.baseStation && typeof $set.baseStation === 'object';
+
+  if (hasParent) {
+    if ('location' in $set.baseStation) {
+      const cleaned = sanitizeGeo($set.baseStation.location);
+      if (cleaned) $set.baseStation.location = cleaned; else delete $set.baseStation.location;
     }
+    if ('baseStation.location' in $set) delete $set['baseStation.location'];
+  } else if ('baseStation.location' in $set) {
+    const cleaned = sanitizeGeo($set['baseStation.location']);
+    if (cleaned) $set['baseStation.location'] = cleaned; else delete $set['baseStation.location'];
   }
 
   if (!update.$set && $set !== update) update.$set = $set;
